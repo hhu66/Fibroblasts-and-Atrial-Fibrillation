@@ -1,0 +1,306 @@
+---
+title: "Fibroblasts Peak Analysis"
+author: "Huiyi Hu"
+date: "2024-03-12"
+format: html
+editor: visual
+---
+
+# Summary
+
+-   **Number of shared peaks:** 3051
+
+-   **Number of peaks specific to Fib_0:** 44
+
+-   **Number of peaks specific to Myofib:** 201
+
+-   **Number of peaks specific to Fib_SCARA5:** 175
+
+-   **Number of peaks specific to Fib_3:** 11
+
+# Compute all peaks that are specific to each cluster
+
+```{r}
+#| eval: false
+
+library(readr)
+library(dplyr)
+library(tidyverse)
+library(Seurat)
+library(Signac)
+
+setwd("/project2/xinhe/huiyihu/fib_peaks/fibroblasts_peaks")
+data <- readRDS("./Fibroblast_snRNA_snATAC.Rds")
+
+# set the active assay from RNA to peaks
+DefaultAssay(data) <- "peaks"
+
+####### Compute all Peaks that are specific for each cluster #################
+##############################################################################
+
+# calculate all peaks that are specific for each cluster
+da_peaks <- FindAllMarkers(data,
+                           only.pos = T,
+                           test.use = 'LR', 
+                           latent.vars = "nCount_peaks")
+# save it as RDs
+saveRDS(da_peaks, file = "./differentially_accessible_peaks.Rds")
+```
+
+## Result from differential accessibility analysis
+
+-   Located at `"/project2/xinhe/huiyihu/fib_peaks/fibroblasts_peaks/differentially_accessible_peaks.Rds"`
+
+![](images/clipboard-512835748.png)
+
+## Apply filter criteria and count peaks
+
+-   p_val_adj \<= 0.1, avg_log2FC \>= 0.1
+
+-   p_val_adj = the p_val adjusted based on Bonferroni correction
+
+    ```{r}
+    #| eval: false
+
+    #Apply filtering criteria
+    da_filtered <- differentially_accessible_peaks %>% filter(p_val_adj <= 0.1, avg_log2FC >= 0.1)
+
+    #Count the number of peaks specifically belong to each fibroblast
+    peak_counts <- da_filtered %>%
+        group_by(cluster) %>%
+        summarise(Count = n()) %>%
+        filter(cluster %in% c("Fib_0", "Myofib", "Fib_SCARA5", "Fib_3"))
+    ```
+
+## Peak_counts table and Venn Diagram
+
+-   Unit: Number of peaks (Count)
+
+![](images/clipboard-822946079.png)
+
+![](images/clipboard-377861563.png)
+
+# Compute all Peaks that are shared between the clusters
+
+Compare between...
+
+-   Fib_0 vs. Myofib
+
+-   Fib_0 vs. Fib_SCARA5
+
+-   Fib_0 vs. Fib_3
+
+-   Myofib vs. Fib_SCARA5
+
+-   Myofib vs. Fib_3
+
+-   Fib_SCARA5 vs. Fib_3
+
+```{r}
+#| eval: false
+
+# Set up grouping variable
+group_vector = c('Fib_0', 'Myofib', 'Fib_SCARA5', 'Fib_3')
+
+# Initialize an empty list to store conserved markers for each pair of groups
+conserved_markers_list <- list()
+
+# Loop through all unique combinations of group pairs
+for (i in seq_along(group_vector)) {
+  group1 <- group_vector[i]
+  for (j in (i + 1):length(group_vector)) {
+    group2 <- group_vector[j]
+    
+    data[['groups']] <- sample(x = c(group1, group2), size = ncol(x = data), replace = TRUE)
+    
+    # Identify conserved markers between the current pair of groups
+    conserved_markers <- FindConservedMarkers(
+      data,
+      ident.1 = group1,
+      ident.2 = group2,
+      assay = "peaks",
+      grouping.var = "groups"
+    )
+    
+    # Store the results in the list
+    conserved_markers_list[[paste(group1, group2, sep = "_vs_")]] <- conserved_markers
+  }}
+  
+# Export the results for conserved peaks
+for (result_name in names(conserved_markers_list)) {
+  
+  result_data <- conserved_markers_list[[result_name]]
+  
+  open_peaks <- (result_data[result_data$max_pval < 0.05, ])
+  
+  write.csv(open_peaks, paste0(result_name, ".csv"), row.names = TRUE)
+  saveRDS(conserved_markers_list, "./conserved_markers_list.rds") #save the data
+  
+}
+```
+
+-   `conserved_markers_list` is stored at `"/project2/xinhe/huiyihu/fib_peaks/fibroblasts_peaks/conserved_markers_list.Rds"`
+
+![](images/clipboard-1957454939.png)
+
+## Venn Diagrams for the shared peaks between clusters
+
+```{r}
+#| eval: false
+library(VennDiagram)
+library(RColorBrewer)
+
+# Collect all the regions from each list element
+# Filter each element of the list where max_pval < 0.05
+filtered_markers_list <- lapply(conserved_markers_list, function(marker_data) {
+  marker_data_filtered <- marker_data[marker_data$max_pval < 0.05, ]
+  return(marker_data_filtered)
+})
+
+# Create a named list of regions for the filtered data
+filtered_regions <- lapply(filtered_markers_list, function(filtered_data) {
+  rownames(filtered_data)
+})
+names(filtered_regions) <- conserved_marker_names
+
+
+# Create a list of sets
+set_1 <- list(
+  Fib_0_vs_Myofib = filtered_regions$Fib_0_vs_Myofib,
+  Fib_0_vs_Fib_SCARA5 = filtered_regions$Fib_0_vs_Fib_SCARA5,
+  Fib_0_vs_Fib_3 = filtered_regions$Fib_0_vs_Fib_3
+)
+
+set_2 <- list(
+  Fib_3_vs_Fib_0 = filtered_regions$Fib_0_vs_Fib_3,
+  Fib_3_vs_Myofib = filtered_regions$Myofib_vs_Fib_3,
+  Fib_3_vs_Fib_SCARA5 = filtered_regions$Fib_SCARA5_vs_Fib_3
+)
+
+set_3 <- list(
+  Myofib_vs_Fib_0 = filtered_regions$Fib_0_vs_Myofib,
+  Myofib_vs_Fib_SCARA5 = filtered_regions$Myofib_vs_Fib_SCARA5,
+  Myofib_vs_Fib_3 = filtered_regions$Myofib_vs_Fib_3
+)
+
+set_4 <- list(
+  Fib_SCARA5_vs_Fib_0 = filtered_regions$Fib_0_vs_Fib_SCARA5,
+  Fib_SCARA5_vs_Myofib = filtered_regions$Myofib_vs_Fib_SCARA5,
+  Fib_SCARA5_vs_Fib_3 = filtered_regions$Fib_SCARA5_vs_Fib_3
+)
+
+
+
+# Function to create and save Venn diagram for each Set
+create_and_draw_venn <- function(set, plot_title) {
+  venn.plot <- venn.diagram(
+    x = set,
+    category.names = names(set),
+    filename = NULL,
+    output = TRUE,
+    
+    # Output features
+    imagetype = "png",
+    height = 600,
+    width = 600,
+    resolution = 300,
+    compression = "lzw",
+    
+    # Circles
+    lwd = 2,
+    lty = 'blank',
+    fill = brewer.pal(length(set), "Pastel2"),
+    
+    # Numbers
+    cex = 1.5,
+    fontface = "bold",
+    fontfamily = "sans",
+    
+    # Set names
+    cat.cex = 1.5,
+    cat.fontface = "bold",
+    cat.default.pos = "outer",
+    cat.pos = c(-27, 27, 135),
+    cat.dist = c(0.055, 0.055, 0.085),
+    cat.fontfamily = "sans",
+    rotation = 1,
+    
+    # Title
+    main = plot_title
+  )
+  
+  grid.draw(venn.plot)
+}
+
+create_and_draw_venn(set_1, "Fib_0_vs_others")
+create_and_draw_venn(set_2, "Fib_3_vs_others")
+create_and_draw_venn(set_3, "Myofib_vs_others")
+create_and_draw_venn(set_4, "Fib_SCARA5_vs_others")
+```
+
+![](images/clipboard-4133315893.png){fig-align="center" width="500"}
+
+**Interpretations：**
+
+-   Fib_0 ∩ Myofib = 3568 + 150 + 14 + 293 = 4025 (Fib_0 and Myofib share 4025 peaks)
+
+-   Fib_0 ∩ Fib_SCARA5 = 8626 + 293 +14 + 145 = 9078
+
+-   Fib_0 ∩ Fib_3 = 602 + 150 + 14 +145 = 911
+
+![](images/clipboard-407888125.png){fig-align="center" width="500"}
+
+**Interpretations：**
+
+-   Fib_3 ∩ Myofib = 7 + 518 +94 +232 = 851
+
+-   Fib_3 ∩ Fib_SCARA5 =714 + 94 + 232 +14490 = 15530
+
+![](images/clipboard-1960451032.png){fig-align="center" width="500"}
+
+**Interpretations：**
+
+-   Fib_SCARA5 ∩ Myofib = 8814 + 1636 + 6408 +5782 = 22640
+
+![](images/clipboard-1521697087.png){fig-align="center" width="500"}
+
+# Compute the number of shared peaks among four fibroblast populations
+
+```{r}
+#| eval: false
+
+library(readr)
+library(dplyr)
+
+setwd("/project2/xinhe/huiyihu/fib_peaks/fibroblasts_peaks")
+
+# set the active assay from RNA to peaks
+DefaultAssay(data) <- "peaks"
+
+conserved_markers_list <- readRDS("./conserved_markers_list.rds") 
+
+# Extract rownames from the first dataframe in the list
+common_row_names <- rownames(conserved_markers_list[[1]])
+
+# Loop through the remaining dataframes and keep only the common rownames
+for (i in 2:length(conserved_markers_list)) {
+  common_row_names <- intersect(common_row_names, rownames(conserved_markers_list[[i]]))
+}
+
+# Create a new dataframe with the common rownames
+common_df <- data.frame(rowname = common_row_names)
+
+# export the data
+write.csv(common_df, "./shared_peaks_list.csv", row.names = T)
+saveRDS(common_df, file = "./shared_peaks_list.Rds")
+```
+
+**The number of shared peaks**: 3503
+
+![](images/clipboard-609682212.png)
+
+# Final Venn Diagram
+
+-   Showing the number of peaks specific to each cluster and the number of shared peaks
+
+    ![](images/clipboard-1998209370.png){width="1159"}

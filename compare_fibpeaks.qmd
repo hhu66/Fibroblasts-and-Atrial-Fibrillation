@@ -1,0 +1,84 @@
+---
+title: "Compare Fibroblast Datasets"
+author: "Huiyi Hu"
+date: "2024-03-12"
+format: html
+editor: visual
+---
+
+Compare Fibroblast peak datasets (paper vs. own study)
+---
+
+# Summary
+
+-   Number of overlap peaks: 129347
+
+-   Number of peaks specific to the paper data: 42665
+
+-   Number of peaks specific to own study: 18880
+
+# Obtain GRanges object from paper 
+
+```{r}
+#| eval: false
+library(readr)
+library(Seurat)
+library(Signac)
+library(rtracklayer)
+
+setwd("/project2/xinhe/huiyihu/fib_peaks_data_compare")
+data <- readRDS("./Fibroblast_snRNA_snATAC.Rds")
+
+# set the active assay from RNA to peaks
+DefaultAssay(data) <- "peaks"
+
+# Obtain Granges Object
+fib_peaks_paper <- granges(data)
+
+# Export the GRanges object to a BED file and Rds
+export(fib_peaks_paper, "fibpeaks_paper.bed", format = "bed")
+saveRDS(fib_peaks_paper, "fib_peaks_paper.rds")
+```
+
+# Find overlaps (paper vs. own study) and Venn diagram
+
+```{r}
+#| eval: false
+library(GenomicRanges)
+library(rtracklayer)
+library(VennDiagram)
+
+setwd("/project2/xinhe/huiyihu/fib_peaks_data_compare")
+
+# Load GRanges Objects
+own <- readRDS("./fib_peaks_own_study/Fibroblast-reproduciblePeaks.gr.rds")
+paper <- readRDS("./fib_peaks_paper/fib_peaks_paper.rds")
+
+# Find overlaps
+overlaps <- findOverlaps(own, paper)
+
+# Identify unique and overlapping regions
+own_unique <- setdiff(own, paper)
+paper_unique <- setdiff(paper, own)
+
+# Count the unique and overlapping peaks
+count_overlaps <- length(subjectHits(overlaps))
+count_own_unique <- length(own_unique)
+count_paper_unique <- length(paper_unique)
+
+# Create the Venn diagram
+venn.plot <- draw.pairwise.venn(area1 = count_own_unique, 
+                                area2 = count_paper_unique, 
+                                cross.area = count_overlaps, 
+                                category = c("own study", "paper"), 
+                                fill = c("skyblue", "pink"),
+                                lty = "solid",
+                                lwd = 1,
+                                cex = 1.5,
+                                cat.cex = 1.1)
+
+# Display the Venn diagram
+grid.draw(venn.plot)
+```
+
+![](images/clipboard-2642374189.png){fig-align="center"}
